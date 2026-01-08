@@ -4,6 +4,7 @@
 #include "freertos/task.h"
 #include "driver/i2c_master.h"
 #include "ds3231.h"
+#include "dht11.h"
 
 static const char* TAG = "MAIN";
 
@@ -47,6 +48,28 @@ void ds3231_task(void* args)
     }
 }
 
+void dht11_task(void* args)
+{
+    dht11_init(GPIO_NUM_1);
+
+    while (1)
+    {
+        const char *tag = "[MAIN] DHT11";
+        dht11_data_t dht11_data;
+
+        const esp_err_t err = dht11_read(&dht11_data);
+
+        if (err != ESP_OK)
+        {
+            ESP_LOGE(tag, "Failed reading data from DTH11");
+            continue;
+        }
+
+        ESP_LOGI(tag, "Temperature: %d\tHumidity: %d", dht11_data.temperature, dht11_data.humidity);
+        vTaskDelay(2000/portTICK_PERIOD_MS);
+    }
+}
+
 void app_main(void)
 {
     // Configuration bus I2C
@@ -64,4 +87,5 @@ void app_main(void)
     vTaskDelay(2000 / portTICK_PERIOD_MS);
 
     xTaskCreate(ds3231_task, "DS3231 Task", 2048, NULL, 5, NULL);
+    xTaskCreate(dht11_task, "DHT11 Task", 2048, NULL, 5, NULL);
 }
