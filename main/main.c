@@ -1,84 +1,64 @@
-#include <math.h>
 #include <stdio.h>
-
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
-#include "driver/i2c_master.h"
 #include "freertos/task.h"
+#include "driver/i2c_master.h"
+#include "ds3231.h"
 
-#define DATA_LENGTH 2
-#define DST3231_TEMPERATURE_PRECISION 0.25
+static const char *TAG = "MAIN";
 
-// Functions definition
-float convert_temperature(const uint8_t *temperature_buffer);
+// Configuration I2C
+static const i2c_port_num_t I2C_PORT = 0;
+static const gpio_num_t SDA_PIN = GPIO_NUM_6;
+static const gpio_num_t SCL_PIN = GPIO_NUM_7;
 
-static const i2c_port_num_t i2c_port = 0;
-static gpio_num_t sda_pin = GPIO_NUM_6;
-static gpio_num_t scl_pin = GPIO_NUM_7;
-static uint16_t ds3231_address = 0b1101000;
-static uint8_t temperature_reg_address[1] = {0x11};
+i2c_master_bus_handle_t bus_handle;
 
-static const char *TAG = "I2C_DEMO";
-
-
-void app_main()
+void ds3231_task(void *args)
 {
-    i2c_master_bus_config_t i2c_mst_config = {
+    // Configuration device DS3231
+    i2c_device_config_t dev_config = {
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .device_address = DS3231_I2C_ADDRESS,
+        .scl_speed_hz = 100000,
+    };
+
+    i2c_master_dev_handle_t ds3231_dev;
+    ESP_ERROR_CHECK(i2c_master_bus_add_device(bus_handle, &dev_config, &ds3231_dev));
+
+    ESP_LOGI(TAG, "DS3231 initialized successfully");
+
+    // Boucle de lecture
+    while (1)
+    {
+        float temperature;
+        esp_err_t ret = ds3231_read_temperature(ds3231_dev, &temperature);
+
+        if (ret == ESP_OK) {
+            ESP_LOGI(TAG, "Temperature: %.2f°C", temperature);
+        } else {
+            ESP_LOGE(TAG, "Failed to read temperature");
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(2000));
+    }
+}
+
+void app_main(void)
+{
+    // Configuration bus I2C
+    i2c_master_bus_config_t bus_config = {
         .clk_source = I2C_CLK_SRC_DEFAULT,
-        .i2c_port = i2c_port,
-        .scl_io_num = scl_pin,
-        .sda_io_num = sda_pin,
+        .i2c_port = I2C_PORT,
+        .scl_io_num = SCL_PIN,
+        .sda_io_num = SDA_PIN,
         .glitch_ignore_cnt = 7,
         .flags.enable_internal_pullup = true,
     };
 
-    i2c_master_bus_handle_t bus_handle;
+    ESP_ERROR_CHECK(i2c_new_master_bus(&bus_config, &bus_handle));
 
-    esp_err_t esp_err = i2c_new_master_bus(&i2c_mst_config, &bus_handle);
+    vTaskDelay(2000/portTICK_PERIOD_MS);
 
-    if (esp_err != ESP_OK)
-    {
-        ESP_LOGE(TAG, "failed to initiate the i2c bus");
-        abort();
-    }
-
-    i2c_device_config_t dev_cfg = {
-        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
-        .device_address = ds3231_address,
-        .scl_speed_hz = 100000,
-    };
-
-    i2c_master_dev_handle_t dev_handle;
-
-    esp_err = i2c_master_bus_add_device(bus_handle, &dev_cfg, &dev_handle);
-
-    if (esp_err != ESP_OK)
-    {
-        ESP_LOGE(TAG, "failed to attach device to the i2c bus");
-        abort();
-    }
-
-    uint8_t data_rd[2];
-
-   while (1)
-   {
-       vTaskDelay(2000/portTICK_PERIOD_MS);
-       // i2c_master_receive(dev_handle, data_rd, DATA_LENGTH, -1);
-
-       i2c_master_transmit_receive(
-           dev_handle,
-           temperature_reg_address, sizeof(temperature_reg_address),
-           data_rd, sizeof(data_rd),
-           -1);
-       float_t temperature = convert_temperature(data_rd);
-       const char *TEMP_TAG = "Temperature";
-       ESP_LOGI(TEMP_TAG, ": %f", temperature);
-   }
-}
-
-float convert_temperature(const uint8_t *temperature_buffer)
-{
-    const int8_t msb =(int8_t) *temperature_buffer;
-    const uint8_t lsb = *(temperature_buffer + 1);
-    return msb + (lsb >> 6) * DST3231_TEMPERATURE_PRECISION;
+    xTaskCreate(ds3231_task, "DS3231 Task", 2048, NULL, 5, NULL);
 }
