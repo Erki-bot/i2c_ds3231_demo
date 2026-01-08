@@ -1,3 +1,4 @@
+#include <math.h>
 #include <stdio.h>
 
 #include "esp_log.h"
@@ -6,8 +7,10 @@
 #include "freertos/task.h"
 
 #define DATA_LENGTH 2
+#define DST3231_TEMPERATURE_PRECISION 0.25
 
 // Functions definition
+float convert_temperature(const uint8_t *temperature_buffer);
 
 static const i2c_port_num_t i2c_port = 0;
 static gpio_num_t sda_pin = GPIO_NUM_6;
@@ -67,11 +70,15 @@ void app_main()
            temperature_reg_address, sizeof(temperature_reg_address),
            data_rd, sizeof(data_rd),
            -1);
-       ESP_LOGI(TAG, "Temp1: %d", data_rd[0]);
-       ESP_LOGI(TAG, "Temp2: %d", data_rd[1]);
-
+       float_t temperature = convert_temperature(data_rd);
+       const char *TEMP_TAG = "Temperature";
+       ESP_LOGI(TEMP_TAG, ": %f", temperature);
    }
-
-
 }
 
+float convert_temperature(const uint8_t *temperature_buffer)
+{
+    const int8_t msb =(int8_t) *temperature_buffer;
+    const uint8_t lsb = *(temperature_buffer + 1);
+    return msb + (lsb >> 6) * DST3231_TEMPERATURE_PRECISION;
+}
